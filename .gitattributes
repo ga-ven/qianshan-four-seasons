@@ -1,0 +1,33 @@
+# 默认：文本文件走 LF，且把 CRLF 规范化为 LF 入库。
+# 这样 Windows / macOS / Linux 协作者拿到的 shell 脚本、
+# JS、CSS 都不会因为换行符不同而在 git-bash 或 CI 上跑不起来。
+* text=auto eol=lf
+
+# 显式点名的文本类型（避免某些环境把无扩展名文件当二进制）
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.py    text eol=lf
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+
+# 二进制：图片、字体等一律不做换行符转换、不参与 diff
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+
+# 生成物/展示图在 diff 里折叠
+shots/*.png -diff

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#D6C3A0">
+<title>千山四时 · 数字长卷</title>
+<meta name="description" content="一幅由代码生成的中国山水长卷：春山澹冶而如笑，夏山苍翠而如滴，秋山明净而如妆，冬山惨淡而如睡。">
+<!-- 图标：内联 SVG 的 data URI。
+     两个硬要求，缺一就出**很难查的布局 bug**：
+
+     ① 里层不能再出现双引号。href 用双引号包着，里面又写
+ 的话，属性值会在**第一个内层双引号**处提前结束；
+        后面的 <rect>/<text> 就被当成真的 DOM 元素解析，并被浏览器的
+        foster-parenting 塞进 <body>，在页面顶部压出一条 18px 的行盒：
+        整卷被下推 18px、底部被裁掉、还多出一根页面滚动条。
+        症状极隐蔽 —— **左上角出现「山 " >」这样的乱码**，那正是漏出来的
+        <text>山</text> 加半个残留标签。所以这里一律用单引号。
+     ② < > # 要百分号编码（%3C %3E %23），否则同样会被当成标签/片段起点。
+        中文用 UTF-8 百分号编码（山 = %E5%B1%B1）。
+
+     历史版本就是因为 ① 而让 <rect> 漏进 body，多出一条 18px 空白带。 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23E8622C'/%3E%3Ctext x='16' y='24' font-size='20' text-anchor='middle' fill='%23FFF6EA' font-family='serif'%3E%E5%B1%B1%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+<script>
+/* 出错兜底。
+   必须放在**最前面**：若更早的脚本在解析或执行时就抛异常，
+   后面 main.js 里装的处理器根本没机会运行，页面就是一片空白。
+   capture=true 是为了同时接住「资源加载失败」——那类错误不冒泡。 */
+(function () {
+  function show(text) {
+    var box = document.getElementById('oops');
+    var msg = document.getElementById('oops-msg');
+    if (!box || !msg || !box.hidden) return;
+    box.hidden = false;
+    msg.textContent = text;
+  }
+  window.addEventListener('error', function (ev) {
+    if (ev.target && ev.target !== window && (ev.target.src || ev.target.href)) {
+      show('资源加载失败：' + (ev.target.src || ev.target.href));
+      return;
+    }
+    show((ev.message || '脚本错误') + '\n' + (ev.filename || '') + ' 第 ' + (ev.lineno || 0) + ' 行'
+      + (ev.error && ev.error.stack ? '\n\n' + ev.error.stack : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (ev) {
+    show('未处理的 Promise 拒绝：\n' + ((ev.reason && (ev.reason.stack || ev.reason.message)) || ev.reason));
+  });
+})();
+</script>
+</head>
+<body>
+
+<div class="stage" id="stage">
+
+  <!-- 画卷本体：底图 + 动态层 -->
+  <canvas id="scroll-canvas" class="layer"></canvas>
+  <canvas id="fx-canvas" class="layer"></canvas>
+  <div class="vignette"></div>
+
+  <!-- 装裱：天头 / 地头 -->
+  <div class="mount mount-top"></div>
+  <div class="mount mount-bottom"></div>
+
+  <!-- ── 顶栏 ───────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-seal">千山</span>
+      <span class="brand-title">四时</span>
+      <span class="brand-sub">按代码生成之山水长卷</span>
+    </div>
+    <div class="season-badge" id="season-badge">
+      <span class="season-name">春</span>
+      <span class="season-motto">春山澹冶而如笑</span>
+    </div>
+  </header>
+
+  <!-- ── 题跋卡片 ───────────────────────────────────────── -->
+  <aside class="card" id="card" aria-hidden="true">
+    <button class="card-close" id="card-close" aria-label="收起题跋">✕</button>
+    <div class="card-inner">
+      <div class="card-seal" id="card-seal">春</div>
+      <h2 class="card-title" id="card-title"></h2>
+      <div class="card-verses" id="card-verses"></div>
+      <div class="card-by" id="card-by"></div>
+    </div>
+    <div class="card-thread"></div>
+  </aside>
+
+  <!-- ── 底部控制台（永远可见，不随内容挤压） ───────────── -->
+  <nav class="dock" id="dock">
+
+    <div class="dock-mini" id="minimap" role="slider" aria-label="长卷导航" tabindex="0">
+      <canvas id="minimap-canvas"></canvas>
+      <div class="mini-viewport" id="mini-viewport"></div>
+      <div class="mini-marks" id="mini-marks"></div>
+      <div class="mini-rule"></div>
+    </div>
+
+    <div class="dock-bar">
+      <div class="dock-group">
+        <button class="btn btn-icon" id="btn-first" title="卷首（Home）" aria-label="回到卷首">⏮</button>
+        <button class="btn btn-icon" id="btn-prev" title="上一景（←）" aria-label="上一景">◀</button>
+        <button class="btn btn-primary" id="btn-tour" title="自动漫游（空格）">
+          <span class="tour-ico" id="tour-ico">▶</span>
+          <span class="tour-label" id="tour-label">自动漫游</span>
+        </button>
+        <button class="btn btn-icon" id="btn-next" title="下一景（→）" aria-label="下一景">▶</button>
+        <button class="btn btn-icon" id="btn-last" title="卷尾（End）" aria-label="去卷尾">⏭</button>
+      </div>
+
+      <div class="dock-sep"></div>
+
+      <div class="dock-group">
+        <button class="btn btn-chip" id="btn-overview" title="整卷概览（V）">
+          <span class="chip-ico">⛰</span><span class="chip-txt">整卷</span>
+        </button>
+        <button class="btn btn-chip" id="btn-rain" title="清明时雨（R）">
+          <span class="chip-ico">☂</span><span class="chip-txt">时雨</span>
+        </button>
+        <button class="btn btn-chip" id="btn-mood" title="切换天光（M）">
+          <span class="chip-ico">☀</span><span class="chip-txt" id="mood-txt">午</span>
+        </button>
+        <button class="btn btn-chip" id="btn-rand" title="随机移步（X）">
+          <span class="chip-ico">✦</span><span class="chip-txt">移步</span>
+        </button>
+        <button class="btn btn-chip" id="btn-alive" title="灵动：人物行走 / 水流动 / 树随风（A）">
+          <span class="chip-ico">❋</span><span class="chip-txt">灵动</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="dock-progress">
+      <span class="prog-label">卷首</span>
+      <div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div>
+      <span class="prog-label">卷尾</span>
+      <span class="prog-num" id="prog-num">0%</span>
+    </div>
+  </nav>
+
+  <!-- ── 操作提示 ───────────────────────────────────────── -->
+  <div class="hint" id="hint">
+    <span><kbd>拖拽</kbd> 移步</span>
+    <span><kbd>滚轮</kbd> 缩放</span>
+    <span><kbd>双击</kbd> 对焦</span>
+    <span><kbd>空格</kbd> 漫游</span>
+    <span><kbd>A</kbd> 灵动</span>
+    <span><kbd>?</kbd> 收起</span>
+  </div>
+
+  <!-- ── 开场 ───────────────────────────────────────────── -->
+  <div class="intro" id="intro">
+    <div class="intro-frame">
+      <div class="intro-seal">千山</div>
+      <h1 class="intro-title">千山四时</h1>
+      <p class="intro-sub">春山澹冶而如笑　夏山苍翠而如滴<br>秋山明净而如妆　冬山惨淡而如睡</p>
+      <p class="intro-note">— 郭熙《林泉高致·山水训》</p>
+      <button class="intro-go" id="intro-go">展 卷</button>
+      <p class="intro-tech">全卷 12000 × 900，无一笔图片素材，尽由代码写就</p>
+    </div>
+  </div>
+
+  <div class="loading" id="loading" hidden>
+    <span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span>
+    <span class="loading-txt">研墨中</span>
+  </div>
+
+  <!-- 出错时把它显示出来。
+       否则脚本一抛异常，画布没内容、背景又是浅色，整页看上去就是「一片空白」，
+       既不知道出了什么事，也不知道该从哪查。 -->
+  <div class="oops" id="oops" hidden>
+    <div class="oops-box">
+      <h3>画卷没能展开</h3>
+      <p class="oops-hint">页面脚本报错了，把下面这段发给我就能定位。按 F12 打开控制台可以看到更多。</p>
+      <pre id="oops-msg"></pre>
+    </div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/scene-data.js"></script>
+<script src="js/painter.js"></script>
+<script src="js/motifs.js"></script>
+<script src="js/alive.js"></script>
+<script src="js/scroll.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

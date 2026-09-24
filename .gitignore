@@ -1,0 +1,17 @@
+# ---- 自检中间产物 ----
+# tools/ 里的脚本会把诊断截图写进 shots/_diag/（每次跑都不一样，不进版本库）。
+# 目录本身要留在仓库里：脚本直接往里写文件，不自己建目录。
+shots/_diag/*
+!shots/_diag/.gitkeep
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
