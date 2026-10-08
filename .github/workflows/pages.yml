@@ -1,0 +1,61 @@
+name: Deploy to GitHub Pages
+
+# 纯静态站点，无构建步骤。
+# 只把 index.html + css/ + js/ 作为产物发布（共约 260KB），
+# 不带上 .git / shots / tools / README —— 那些是仓库资产，不是站点的一部分。
+#
+# enablement: true 让本工作流在 Pages 尚未开启时**自动开启**它，
+# 因此不需要人工去 Settings → Pages 点任何东西。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时刻只允许一个发布任务。新推送取消排队中的旧任务，
+# 但不取消**正在进行的**发布，避免把线上站点打成半成品。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages（未开启则自动开启）
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Stage site files
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp -r css _site/css
+          cp -r js  _site/js
+          # 站点不需要 Jekyll 处理；Actions 部署本就不走 Jekyll，这里只是显式声明
+          touch _site/.nojekyll
+          echo "--- 产物清单 ---"
+          find _site -type f | sort
+          echo "--- 产物体积 ---"
+          du -sh _site
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
